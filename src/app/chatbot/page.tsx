@@ -1,23 +1,9 @@
 'use client'
 
-import {
-  useAuthenticationStatus,
-  useSignOut,
-  useUserData,
-  useAccessToken,
-} from '@nhost/react'
+import {useAuthenticationStatus, useSignOut, useUserData, useAccessToken} from '@nhost/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, useRef } from 'react'
-import { 
-  Plus, 
-  Send, 
-  MessageCircle, 
-  UserCircle, 
-  LogOut, 
-  Sparkles, 
-  Clock, 
-  Menu 
-} from 'lucide-react'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { Plus, Send, MessageCircle, UserCircle, LogOut, Sparkles, Clock, Menu } from 'lucide-react'
 
 interface Message {
   id?: string
@@ -30,6 +16,28 @@ interface Chat {
   id: string
   title: string
   created_at: string
+}
+
+interface HasuraMessage {
+  id: string
+  content: string
+  role?: string
+  created_at: string
+  chat_id: string
+  user_id: string
+}
+
+interface HasuraError {
+  message: string
+}
+
+interface HasuraResponse {
+  data?: {
+    messages?: HasuraMessage[]
+    chats?: Chat[]
+    insert_chats_one?: Chat
+  }
+  errors?: HasuraError[]
 }
 
 export default function ChatbotPage() {
@@ -51,7 +59,7 @@ export default function ChatbotPage() {
   const HASURA_GRAPHQL_URL =
     'https://yqvruonisddhfyefbrry.hasura.ap-south-1.nhost.run/v1/graphql'
 
-  // Auto-scroll to bottom
+  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -60,7 +68,7 @@ export default function ChatbotPage() {
     scrollToBottom()
   }, [messages])
 
-  // Prevent hydration mismatch
+ 
   useEffect(() => {
     setMounted(true)
   }, [])
@@ -71,14 +79,7 @@ export default function ChatbotPage() {
     }
   }, [isLoading, isAuthenticated, router])
 
-  // Load chat history
-  useEffect(() => {
-    if (isAuthenticated && user?.id) {
-      loadChatHistory()
-    }
-  }, [isAuthenticated, user])
-
-  const loadChatHistory = async () => {
+  const loadChatHistory = useCallback(async () => {
     try {
       const response = await fetch(HASURA_GRAPHQL_URL, {
         method: 'POST',
@@ -105,20 +106,26 @@ export default function ChatbotPage() {
         }),
       })
 
-      const data = await response.json()
+      const data: HasuraResponse = await response.json()
 
-      console.log("data of chat history :", data);
+      
       if (data.data?.chats) {
         setChatHistory(data.data.chats)
-        // Load the most recent chat if available
-        if (data.data.chats.length > 0 && !currentChat) {
-          loadChatMessages(data.data.chats[0])
-        }
+        // Don't automatically load any chat - user should start fresh
+        // User can manually select a chat from history if needed
       }
     } catch (error) {
       console.error('Error loading chat history:', error)
     }
-  }
+  }, [accessToken, user?.id])
+
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      loadChatHistory()
+      // Ensure user starts with a clean new chat
+      startNewChat()
+    }
+  }, [isAuthenticated, user?.id, loadChatHistory])
 
   const loadChatMessages = async (chat: Chat) => {
     setCurrentChat(chat)
@@ -152,14 +159,13 @@ export default function ChatbotPage() {
         }),
       })
       
-      const data = await response.json()
-      console.log("loadChatMessages data:", data);
+      const data: HasuraResponse = await response.json()
       
       // If role field is accessible, use it
       if (!data.errors && data.data?.messages) {
-        const formattedMessages = data.data.messages.map((msg: any) => ({
+        const formattedMessages = data.data.messages.map((msg: HasuraMessage) => ({
           id: msg.id,
-          sender: msg.role === 'user' ? 'user' : 'bot',
+          sender: msg.role === 'user' ? 'user' as const : 'bot' as const,
           text: msg.content,
           timestamp: msg.created_at,
         }))
@@ -168,8 +174,7 @@ export default function ChatbotPage() {
       }
       
       // If role field is not accessible, try without it
-      if (data.errors && data.errors.some((err: any) => err.message.includes('role'))) {
-        console.log('Role field not accessible, trying without role field...');
+      if (data.errors && data.errors.some((err: HasuraError) => err.message.includes('role'))) {
         
         const simpleResponse = await fetch(HASURA_GRAPHQL_URL, {
           method: 'POST',
@@ -198,12 +203,11 @@ export default function ChatbotPage() {
           }),
         })
         
-        const simpleData = await simpleResponse.json()
-        console.log("Simple query result:", simpleData);
+        const simpleData: HasuraResponse = await simpleResponse.json()
         
         if (simpleData.data?.messages) {
           // Enhanced logic to determine message sender when role field is not available
-          const formattedMessages = simpleData.data.messages.map((msg: any, index: number) => {
+          const formattedMessages = simpleData.data.messages.map((msg: HasuraMessage, index: number) => {
             let sender: 'user' | 'bot' = 'user';
             
             // Method 1: Alternating pattern (most reliable for chat apps)
@@ -223,11 +227,11 @@ export default function ChatbotPage() {
               'i need', 'i want', 'tell me', 'explain', 'show me'
             ];
             
-            // Check if content strongly suggests it's from bot
+            
             if (botIndicators.some(indicator => content.includes(indicator))) {
               sender = 'bot';
             }
-            // Check if content strongly suggests it's from user
+    
             else if (userIndicators.some(indicator => content.includes(indicator))) {
               sender = 'user';
             }
@@ -242,23 +246,21 @@ export default function ChatbotPage() {
           
           setMessages(formattedMessages);
         }
-      } else {
-        console.error('GraphQL errors:', data.errors);
       }
     } catch (error) {
-      console.error('Error loading messages:', error)
+      console.error('Error loading chat messages:', error)
     }
   }
 
   const startNewChat = () => {
     setCurrentChat(null)
     setMessages([])
+    // Optional: You can add a smooth scroll to top when starting new chat
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const saveMessage = async (chatId: string, content: string, role: 'user' | 'assistant') => {
     try {
-      console.log('Saving message:', { chatId, content, role, userId: user?.id });
-      
       // First try with role field
       let response = await fetch(HASURA_GRAPHQL_URL, {
         method: 'POST',
@@ -292,12 +294,10 @@ export default function ChatbotPage() {
         }),
       })
       
-      let result = await response.json()
-      console.log('Save message result:', result);
+      let result: HasuraResponse = await response.json()
       
       // If there's an error with the role field, try without it
-      if (result.errors && result.errors.some((err: any) => err.message.includes('role'))) {
-        console.log('Role field not accessible, trying without role...');
+      if (result.errors && result.errors.some((err: HasuraError) => err.message.includes('role'))) {
         
         response = await fetch(HASURA_GRAPHQL_URL, {
           method: 'POST',
@@ -330,17 +330,12 @@ export default function ChatbotPage() {
         })
         
         result = await response.json()
-        console.log('Save message without role result:', result);
-      }
-      
-      if (result.errors) {
-        console.error('Error saving message:', result.errors);
       }
       
       return result;
     } catch (error) {
       console.error('Error saving message:', error)
-      throw error;
+      return null
     }
   }
 
@@ -398,21 +393,15 @@ export default function ChatbotPage() {
           }),
         })
 
-        const createChatData = await createChatRes.json()
-        console.log('Create chat result:', createChatData);
+        const createChatData: HasuraResponse = await createChatRes.json()
         
         if (createChatData.data?.insert_chats_one) {
           const newChat = createChatData.data.insert_chats_one
           chatId = newChat.id
           setCurrentChat(newChat)
           setChatHistory(prev => [newChat, ...prev])
-        } else {
-          console.error('Failed to create chat:', createChatData.errors);
-          throw new Error('Failed to create new chat');
         }
       }
-      
-      console.log("Using chatId:", chatId);
       
       // Save user message to database
       if (chatId) {
@@ -480,7 +469,7 @@ export default function ChatbotPage() {
         <div className="p-6 border-b border-gray-200 bg-white">
           <button
             onClick={startNewChat}
-            className="w-full py-3 px-4 rounded-lg hover:bg-black hover:text-white transition-all duration-200 flex items-center justify-center space-x-2 font-medium text-black"
+            className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-gray-900 to-black hover:from-black hover:to-gray-800 text-white transition-all duration-200 flex items-center justify-center space-x-2 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02]"
           >
             <Plus className="w-5 h-5" />
             <span>New Chat</span>
@@ -572,7 +561,17 @@ export default function ChatbotPage() {
                   {currentChat?.title || 'New Conversation'}
                 </h1>
                 <p className="text-sm text-gray-500 flex items-center">
-                  AI Assistant
+                  {currentChat ? (
+                    <>
+                      <MessageCircle className="w-4 h-4 mr-1" />
+                      Continuing chat from {new Date(currentChat.created_at).toLocaleDateString()}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-1" />
+                      AI Assistant • Ready to help
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -583,27 +582,42 @@ export default function ChatbotPage() {
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50">
           {messages.length === 0 && (
             <div className="text-center mt-20">
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Welcome to AI Chat
-              </h2>
-              <p className="text-gray-600 max-w-md mx-auto leading-relaxed mb-8">
-                Start a conversation with your AI assistant. Ask questions, get help, or just chat!
-              </p>
+              <div className="mb-8">
+                <div className="w-20 h-20 bg-gradient-to-br from-gray-900 to-black rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                  <Sparkles className="w-10 h-10 text-white" />
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 mb-3">
+                  Ready to Chat!
+                </h2>
+                <p className="text-gray-600 max-w-md mx-auto leading-relaxed mb-8">
+                  Start a fresh conversation with your AI assistant. Ask questions, get help, or explore ideas together.
+                </p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
                 {[
-                  "Help me write an email",
-                  "Explain a complex topic",
-                  "Brainstorm some ideas"
+                  { text: "Help me write an email", icon: "✉️" },
+                  { text: "Explain a complex topic", icon: "🧠" },
+                  { text: "Brainstorm some ideas", icon: "💡" }
                 ].map((suggestion, idx) => (
                   <button
                     key={idx}
-                    onClick={() => setInput(suggestion)}
-                    className="p-4 bg-white rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all duration-200 text-sm text-gray-700 font-medium"
+                    onClick={() => setInput(suggestion.text)}
+                    className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all duration-200 text-sm text-gray-700 font-medium shadow-sm hover:shadow-md group"
                   >
-                    {suggestion}
+                    <div className="text-2xl mb-2 group-hover:scale-110 transition-transform duration-200">
+                      {suggestion.icon}
+                    </div>
+                    {suggestion.text}
                   </button>
                 ))}
               </div>
+              {chatHistory.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-gray-200">
+                  <p className="text-sm text-gray-500 mb-4">
+                    Or continue from your previous conversations in the sidebar
+                  </p>
+                </div>
+              )}
             </div>
           )}
           
