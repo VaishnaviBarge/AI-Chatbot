@@ -56,8 +56,10 @@ export default function ChatbotPage() {
   const [chatHistory, setChatHistory] = useState<Chat[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false) // Changed default to false for mobile-first
 
-  const HASURA_GRAPHQL_URL =
-    'https://yqvruonisddhfyefbrry.hasura.ap-south-1.nhost.run/v1/graphql'
+  // Environment variables
+  const HASURA_GRAPHQL_URL = process.env.NEXT_PUBLIC_HASURA_GRAPHQL_URL!
+  const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET!
+  const N8N_WEBHOOK_URL = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!
 
   
   const scrollToBottom = () => {
@@ -106,7 +108,7 @@ export default function ChatbotPage() {
           'Content-Type': 'application/json',
           ...(accessToken
             ? { Authorization: `Bearer ${accessToken}` }
-            : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+            : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
         },
         body: JSON.stringify({
           query: `
@@ -136,7 +138,7 @@ export default function ChatbotPage() {
     } catch (error) {
       console.error('Error loading chat history:', error)
     }
-  }, [accessToken, user?.id])
+  }, [accessToken, user?.id, HASURA_GRAPHQL_URL, HASURA_ADMIN_SECRET])
 
   useEffect(() => {
     if (isAuthenticated && user?.id) {
@@ -160,7 +162,7 @@ export default function ChatbotPage() {
           'Content-Type': 'application/json',
           ...(accessToken
             ? { Authorization: `Bearer ${accessToken}` }
-            : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+            : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
         },
         body: JSON.stringify({
           query: `
@@ -205,7 +207,7 @@ export default function ChatbotPage() {
             'Content-Type': 'application/json',
             ...(accessToken
               ? { Authorization: `Bearer ${accessToken}` }
-              : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+              : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
           },
           body: JSON.stringify({
             query: `
@@ -295,7 +297,7 @@ export default function ChatbotPage() {
           'Content-Type': 'application/json',
           ...(accessToken
             ? { Authorization: `Bearer ${accessToken}` }
-            : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+            : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
         },
         body: JSON.stringify({
           query: `
@@ -332,7 +334,7 @@ export default function ChatbotPage() {
             'Content-Type': 'application/json',
             ...(accessToken
               ? { Authorization: `Bearer ${accessToken}` }
-              : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+              : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
           },
           body: JSON.stringify({
             query: `
@@ -404,7 +406,7 @@ export default function ChatbotPage() {
             'Content-Type': 'application/json',
             ...(accessToken
               ? { Authorization: `Bearer ${accessToken}` }
-              : { 'x-hasura-admin-secret': `T3$vYfSkIjRCzJjhg9'v'rG_9W'gtcQ+` }),
+              : { 'x-hasura-admin-secret': HASURA_ADMIN_SECRET }),
           },
           body: JSON.stringify({
             query: `
@@ -434,11 +436,9 @@ export default function ChatbotPage() {
       if (chatId) {
         await saveMessage(chatId, currentMessage, 'user')
       }
-      console.log("chat id ",chatId );
-      console.log(typeof chatId);
-      
-      // Call n8n webhook
-      const response = await fetch('https://n8n-chatbot-9evz.onrender.com/webhook/chat', {
+   
+      // Call n8n webhook using environment variable
+      const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -450,7 +450,7 @@ export default function ChatbotPage() {
       })
 
       const data = await response.json()
-      console.log("data ",data);
+      
       if (!response.ok) {
         throw new Error(`Failed to get response from bot: ${response.status}`)
       }
